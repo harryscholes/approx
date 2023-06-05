@@ -6,6 +6,7 @@ use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 use num::Float;
 
+#[derive(Clone)]
 pub struct RandomProjection<T> {
     plane_norms: Array2<T>,
 }
@@ -23,6 +24,10 @@ where
         }
     }
 
+    pub fn from(plane_norms: Array2<T>) -> Self {
+        Self { plane_norms }
+    }
+
     pub fn project(&self, vec: &[T]) -> Vec<T> {
         self.plane_norms.dot(&arr1(vec)).to_vec()
     }
@@ -34,13 +39,34 @@ where
             .collect()
     }
 
-    pub fn bucket(&self, vecs: &[Vec<T>]) -> HashMap<Vec<bool>, Vec<Vec<T>>> {
-        let mut map = HashMap::new();
-        for vec in vecs {
-            let h = self.hash(vec);
-            map.entry(h).or_insert(vec![]).push(vec.to_vec());
+    pub fn buckets(&self) -> RandomProjectionBuckets<T> {
+        RandomProjectionBuckets::new(self)
+    }
+}
+
+pub struct RandomProjectionBuckets<T> {
+    rp: RandomProjection<T>,
+    buckets: HashMap<Vec<bool>, Vec<Vec<T>>>,
+}
+
+impl<T> RandomProjectionBuckets<T>
+where
+    T: Float + LinalgScalar + SampleUniform,
+{
+    pub fn new(rp: &RandomProjection<T>) -> Self {
+        Self {
+            rp: rp.clone(),
+            buckets: HashMap::new(),
         }
-        map
+    }
+
+    pub fn insert(&mut self, vec: &[T]) {
+        let h = self.rp.hash(vec);
+        self.buckets.entry(h).or_insert(vec![]).push(vec.to_vec());
+    }
+
+    pub fn get(&self, k: &[bool]) -> Option<&Vec<Vec<T>>> {
+        self.buckets.get(k)
     }
 }
 
@@ -58,14 +84,13 @@ mod tests {
     fn test_pinecone_example() {
         // Example from:
         // https://www.pinecone.io/learn/locality-sensitive-hashing-random-projection/
-        let rp = RandomProjection {
-            plane_norms: arr2(&[
-                [-0.26623211, 0.34055181],
-                [0.3388499, -0.33368453],
-                [0.34768572, -0.37184437],
-                [-0.11170635, -0.0242341],
-            ]),
-        };
+        let plane_norms = arr2(&[
+            [-0.26623211, 0.34055181],
+            [0.3388499, -0.33368453],
+            [0.34768572, -0.37184437],
+            [-0.11170635, -0.0242341],
+        ]);
+        let rp = RandomProjection::from(plane_norms);
 
         let a = vec![1., 2.];
         let b = vec![2., 1.];
@@ -81,9 +106,20 @@ mod tests {
         assert_eq!(rp.hash(&b), vec![false, true, true, false]);
         assert_eq!(rp.hash(&c), vec![false, true, true, false]);
 
-        let buckets = rp.bucket(&data);
-        assert_eq!(buckets[&vec![true, false, false, false]], vec![a]);
-        assert_eq!(buckets[&vec![false, true, true, false]], vec![b, c]);
+        let mut rp_buckets = rp.buckets();
+        for vec in &data {
+            rp_buckets.insert(vec);
+        }
+
+        assert_eq!(
+            rp_buckets.get(&vec![true, false, false, false]),
+            Some(&vec![a])
+        );
+        assert_eq!(
+            rp_buckets.get(&vec![false, true, true, false]),
+            Some(&vec![b, c])
+        );
+        assert!(rp_buckets.get(&vec![true, false, false, true]).is_none());
     }
 
     #[test]
