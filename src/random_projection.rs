@@ -4,12 +4,12 @@ use ndarray::{arr1, Array2, LinalgScalar};
 use ndarray_rand::rand_distr::uniform::SampleUniform;
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
+use serde::{Deserialize, Serialize};
 
 use crate::traits::ANNModel;
 
-// TODO serde
 pub struct RandomProjection<T> {
-    plane_norms: Array2<T>,
+    plane_norms: PlaneNorms<T>,
     buckets: Buckets,
     id: Id,
 }
@@ -23,21 +23,19 @@ where
     T: LinalgScalar + SampleUniform + PartialOrd,
 {
     pub fn new(dims: usize, bits: usize, low: T, high: T) -> Self {
-        let dbn = Uniform::new(low, high);
-        let plane_norms = Array2::random((bits, dims), dbn);
-        Self::from_plane_norms(plane_norms)
+        Self::from_plane_norms(PlaneNorms::new(dims, bits, low, high))
     }
 
-    pub fn from_plane_norms(plane_norms: Array2<T>) -> Self {
+    pub fn from_plane_norms(arr: impl Into<PlaneNorms<T>>) -> Self {
         Self {
-            plane_norms,
+            plane_norms: arr.into(),
             buckets: HashMap::new(),
             id: 0,
         }
     }
 
     pub fn project(&self, vec: &[T]) -> Vec<T> {
-        self.plane_norms.dot(&arr1(vec)).to_vec()
+        self.plane_norms.arr.dot(&arr1(vec)).to_vec()
     }
 
     pub fn hash(&self, vec: &[T]) -> Vec<bool> {
@@ -62,6 +60,10 @@ where
     pub fn buckets(&self) -> &Buckets {
         &self.buckets
     }
+
+    pub fn plane_norms(&self) -> &PlaneNorms<T> {
+        &self.plane_norms
+    }
 }
 
 impl<T> ANNModel<T, usize> for RandomProjection<T>
@@ -81,6 +83,28 @@ where
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, PartialEq)]
+pub struct PlaneNorms<T> {
+    arr: Array2<T>,
+}
+
+impl<T> PlaneNorms<T>
+where
+    T: SampleUniform,
+{
+    pub fn new(dims: usize, bits: usize, low: T, high: T) -> Self {
+        let dbn = Uniform::new(low, high);
+        let arr = Array2::random((bits, dims), dbn);
+        PlaneNorms { arr }
+    }
+}
+
+impl<T> From<Array2<T>> for PlaneNorms<T> {
+    fn from(arr: Array2<T>) -> Self {
+        Self { arr }
+    }
+}
+
 pub fn hamming_distance(x: &[bool], y: &[bool]) -> usize {
     x.iter().zip(y).filter(|(x_i, y_i)| x_i != y_i).count()
 }
@@ -88,6 +112,7 @@ pub fn hamming_distance(x: &[bool], y: &[bool]) -> usize {
 #[cfg(test)]
 mod tests {
     use ndarray::arr2;
+    use serde_json;
 
     use super::*;
 
@@ -164,5 +189,22 @@ mod tests {
         let x = vec![true, false, false, false];
         let y = vec![false, true, true, false];
         assert_eq!(hamming_distance(&x, &y), 3);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_i64() {
+        let plane_norms = PlaneNorms::new(1024, 100, -1, 1);
+        let serialized = serde_json::to_string(&plane_norms).unwrap();
+        let deserialized = serde_json::from_str::<PlaneNorms<i64>>(&serialized).unwrap();
+        assert_eq!(plane_norms, deserialized);
+    }
+
+    #[test]
+    fn test_serialize_deserialize_f32() {
+        // Note that floating point precision errors occur when serde-ing f64s
+        let plane_norms = PlaneNorms::new(1024, 100, -0.5, 0.5);
+        let serialized = serde_json::to_string(&plane_norms).unwrap();
+        let deserialized = serde_json::from_str::<PlaneNorms<f32>>(&serialized).unwrap();
+        assert_eq!(plane_norms, deserialized);
     }
 }

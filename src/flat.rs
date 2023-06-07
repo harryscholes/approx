@@ -75,7 +75,7 @@ mod tests {
         let c = vec![3., 1.];
         let query = vec![1.1, 1.9];
 
-        assert_eq!(f.search(&query, 10), vec![]);
+        assert!(f.search(&query, 10).is_empty());
 
         let a_id = f.train(&a);
         let b_id = f.train(&b);
