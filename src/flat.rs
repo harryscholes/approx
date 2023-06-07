@@ -58,7 +58,6 @@ where
             diff_2
         })
         .sum();
-
     squared_diff_sum.into().sqrt()
 }
 
@@ -67,25 +66,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_() {
+    fn test() {
         let mut f = Flat::new();
 
         let a = vec![1., 2.];
         let b = vec![2., 1.];
         let c = vec![3., 1.];
-        let query = vec![1.1, 1.9];
 
+        let query = vec![1.1, 1.9];
         assert!(f.search(&query, 10).is_empty());
 
         let a_id = f.train(&a);
         let b_id = f.train(&b);
         let c_id = f.train(&c);
 
+        let query = vec![1.1, 1.9];
         assert_eq!(f.search(&query, 1), vec![a_id.clone()]);
         assert_eq!(f.search(&query, 2), vec![a_id.clone(), b_id.clone()]);
         assert_eq!(
             f.search(&query, 3),
             vec![a_id.clone(), b_id.clone(), c_id.clone()]
+        );
+
+        let query = vec![1.9, 1.5];
+        assert_eq!(f.search(&query, 1), vec![b_id.clone()]);
+        assert_eq!(f.search(&query, 2), vec![b_id.clone(), a_id.clone()]);
+        assert_eq!(
+            f.search(&query, 3),
+            vec![b_id.clone(), a_id.clone(), c_id.clone()]
         );
     }
 }
