@@ -4,74 +4,81 @@ use ndarray::{arr1, Array2, LinalgScalar};
 use ndarray_rand::rand_distr::uniform::SampleUniform;
 use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
-use num::{Float, ToPrimitive};
 
-type Buckets<T> = HashMap<Vec<bool>, Vec<Vec<T>>>;
+use crate::traits::ANNModel;
 
-pub struct RandomProjection<T, F> {
-    plane_norms: Array2<F>,
-    buckets: Buckets<T>,
+// TODO serde
+pub struct RandomProjection<T> {
+    plane_norms: Array2<T>,
+    buckets: Buckets,
+    id: Id,
 }
 
-impl<T, F> RandomProjection<T, F>
+type Id = usize;
+type Bucket = Vec<Id>;
+type Buckets = HashMap<Vec<bool>, Bucket>;
+
+impl<T> RandomProjection<T>
 where
-    T: Clone + ToPrimitive,
-    F: Float + LinalgScalar + SampleUniform,
+    T: LinalgScalar + SampleUniform + PartialOrd,
 {
-    pub fn new(dims: usize, bits: usize, low: F, high: F) -> Self {
-        Self::from_plane_norms(Array2::random((bits, dims), Uniform::new(low, high)))
+    pub fn new(dims: usize, bits: usize, low: T, high: T) -> Self {
+        let dbn = Uniform::new(low, high);
+        let plane_norms = Array2::random((bits, dims), dbn);
+        Self::from_plane_norms(plane_norms)
     }
 
-    pub fn from_plane_norms(plane_norms: Array2<F>) -> Self {
+    pub fn from_plane_norms(plane_norms: Array2<T>) -> Self {
         Self {
             plane_norms,
             buckets: HashMap::new(),
+            id: 0,
         }
     }
 
-    pub fn project(&self, vec: &[T]) -> Result<Vec<F>, Error> {
-        let f_vec: Result<Vec<F>, Error> = vec
-            .iter()
-            .cloned()
-            .map(|x| F::from(x).ok_or(Error::TypeConversionError))
-            .collect();
-        let f_vec = f_vec?;
-        Ok(self.plane_norms.dot(&arr1(&f_vec)).to_vec())
+    pub fn project(&self, vec: &[T]) -> Vec<T> {
+        self.plane_norms.dot(&arr1(vec)).to_vec()
     }
 
-    pub fn hash(&self, vec: &[T]) -> Result<Vec<bool>, Error> {
-        let projection = self.project(vec)?;
-        let hash = projection.into_iter().map(|x| x > F::zero()).collect();
-        Ok(hash)
+    pub fn hash(&self, vec: &[T]) -> Vec<bool> {
+        let projection = self.project(vec);
+        projection.into_iter().map(|x| x > T::zero()).collect()
     }
 
-    pub fn hash_to_bucket(&mut self, vec: &[T]) -> Result<Vec<bool>, Error> {
-        let hash = self.hash(vec)?;
-        self.insert_into_bucket(hash.clone(), vec.to_vec());
-        Ok(hash)
+    fn hash_to_bucket(&mut self, vec: &[T]) -> Id {
+        let id = self.id;
+        self.buckets
+            .entry(self.hash(vec))
+            .or_insert(vec![])
+            .push(id);
+        self.id += 1;
+        id
     }
 
-    fn insert_into_bucket(&mut self, hash: Vec<bool>, vec: Vec<T>) {
-        self.buckets.entry(hash).or_insert(vec![]).push(vec);
-    }
-
-    pub fn get_bucket(&self, hash: &[bool]) -> Option<&Vec<Vec<T>>> {
+    fn get_bucket(&self, hash: &[bool]) -> Option<&Bucket> {
         self.buckets.get(hash)
     }
 
-    pub fn nearest_neighbours(&self, vec: &[T]) -> Result<Option<&Vec<Vec<T>>>, Error> {
-        let hash = self.hash(vec)?;
-        Ok(self.get_bucket(&hash))
-    }
-
-    pub fn buckets(&self) -> &Buckets<T> {
+    pub fn buckets(&self) -> &Buckets {
         &self.buckets
     }
 }
 
-#[derive(Debug)]
-pub enum Error {
-    TypeConversionError,
+impl<T> ANNModel<T, usize> for RandomProjection<T>
+where
+    T: LinalgScalar + SampleUniform + PartialOrd,
+{
+    fn train(&mut self, vec: &[T]) -> Id {
+        self.hash_to_bucket(vec)
+    }
+
+    fn search(&self, query: &[T], k: usize) -> Vec<Id> {
+        let hash = self.hash(query);
+        match self.get_bucket(&hash) {
+            Some(ids) => ids.iter().take(k).cloned().collect(),
+            None => vec![],
+        }
+    }
 }
 
 pub fn hamming_distance(x: &[bool], y: &[bool]) -> usize {
@@ -102,31 +109,30 @@ mod tests {
         let c = vec![3., 1.];
 
         assert_eq!(
-            rp.project(&a).unwrap(),
+            rp.project(&a),
             vec![0.41487151, -0.32851916, -0.39600302, -0.16017455]
         );
-        assert_eq!(rp.hash(&a).unwrap(), vec![true, false, false, false]);
-        assert_eq!(rp.hash(&b).unwrap(), vec![false, true, true, false]);
-        assert_eq!(rp.hash(&c).unwrap(), vec![false, true, true, false]);
+        assert_eq!(rp.hash(&a), vec![true, false, false, false]);
+        assert_eq!(rp.hash(&b), vec![false, true, true, false]);
+        assert_eq!(rp.hash(&c), vec![false, true, true, false]);
 
-        rp.hash_to_bucket(&a).unwrap();
-        rp.hash_to_bucket(&b).unwrap();
-        rp.hash_to_bucket(&c).unwrap();
+        let a_id = rp.hash_to_bucket(&a);
+        let b_id = rp.hash_to_bucket(&b);
+        let c_id = rp.hash_to_bucket(&c);
 
         assert_eq!(
             rp.get_bucket(&vec![true, false, false, false]),
-            Some(&vec![a])
+            Some(&vec![a_id])
         );
         assert_eq!(
             rp.get_bucket(&vec![false, true, true, false]),
-            Some(&vec![b.clone(), c.clone()])
+            Some(&vec![b_id, c_id])
         );
         assert!(rp.get_bucket(&vec![true, false, false, true]).is_none());
 
-        assert_eq!(
-            rp.nearest_neighbours(&vec![2.5, 1.]).unwrap(),
-            Some(&vec![b, c])
-        );
+        let k = 2;
+        let query = vec![2.5, 1.];
+        assert_eq!(rp.search(&query, k), vec![1, 2]);
 
         let query = vec![true, true, false, false];
         let buckets = rp.buckets();
@@ -146,11 +152,11 @@ mod tests {
     }
 
     #[test]
-    fn test_type_conversion_i32_to_f64() {
-        let rp = RandomProjection::new(2, 4, -0.5f64, 0.5);
-        let v = vec![1i32, 2];
-        rp.project(&v).unwrap();
-        rp.hash(&v).unwrap();
+    fn test_integer_eltypes() {
+        let rp = RandomProjection::new(2, 4, -1, 1);
+        let v = vec![1, 2];
+        rp.project(&v);
+        rp.hash(&v);
     }
 
     #[test]
