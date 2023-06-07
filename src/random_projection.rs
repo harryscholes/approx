@@ -18,20 +18,22 @@ type Id = usize;
 type Bucket = Vec<Id>;
 type Buckets = HashMap<Vec<bool>, Bucket>;
 
-impl<T> RandomProjection<T>
-where
-    T: LinalgScalar + SampleUniform + PartialOrd,
-{
-    pub fn new(dims: usize, bits: usize, low: T, high: T) -> Self {
-        Self::from_plane_norms(PlaneNorms::new(dims, bits, low, high))
-    }
-
+impl<T> RandomProjection<T> {
     pub fn from_plane_norms(arr: impl Into<PlaneNorms<T>>) -> Self {
         Self {
             plane_norms: arr.into(),
             buckets: HashMap::new(),
             id: 0,
         }
+    }
+}
+
+impl<T> RandomProjection<T>
+where
+    T: LinalgScalar + SampleUniform + PartialOrd,
+{
+    pub fn new(dims: usize, bits: usize, low: T, high: T) -> Self {
+        Self::from_plane_norms(PlaneNorms::new(dims, bits, low, high))
     }
 
     pub fn project(&self, vec: &[T]) -> Vec<T> {
@@ -83,6 +85,18 @@ where
     }
 }
 
+impl<T> From<Array2<T>> for RandomProjection<T> {
+    fn from(arr: Array2<T>) -> Self {
+        RandomProjection::from_plane_norms(arr)
+    }
+}
+
+impl<T> From<PlaneNorms<T>> for RandomProjection<T> {
+    fn from(plane_norms: PlaneNorms<T>) -> Self {
+        RandomProjection::from_plane_norms(plane_norms)
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, PartialEq)]
 pub struct PlaneNorms<T> {
     arr: Array2<T>,
@@ -120,14 +134,13 @@ mod tests {
     fn test_pinecone_example() {
         // Example from:
         // https://www.pinecone.io/learn/locality-sensitive-hashing-random-projection/
-        let plane_norms = arr2(&[
+        let mut rp: RandomProjection<_> = arr2(&[
             [-0.26623211, 0.34055181],
             [0.3388499, -0.33368453],
             [0.34768572, -0.37184437],
             [-0.11170635, -0.0242341],
-        ]);
-
-        let mut rp = RandomProjection::from_plane_norms(plane_norms);
+        ])
+        .into();
 
         let a = vec![1., 2.];
         let b = vec![2., 1.];
