@@ -6,12 +6,11 @@ use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 use serde::{Deserialize, Serialize};
 
-use crate::traits::ANNModel;
+use crate::traits::{BucketSearch, Train};
 
 pub struct RandomProjection<T> {
     plane_norms: PlaneNorms<T>,
     buckets: Buckets,
-    id: Id,
 }
 
 type Id = usize;
@@ -23,7 +22,6 @@ impl<T> RandomProjection<T> {
         Self {
             plane_norms: arr.into(),
             buckets: HashMap::new(),
-            id: 0,
         }
     }
 }
@@ -45,14 +43,11 @@ where
         projection.into_iter().map(|x| x > T::zero()).collect()
     }
 
-    fn hash_to_bucket(&mut self, vec: &[T]) -> Id {
-        let id = self.id;
+    fn hash_to_bucket(&mut self, vec: &[T], id: Id) {
         self.buckets
             .entry(self.hash(vec))
             .or_insert(vec![])
             .push(id);
-        self.id += 1;
-        id
     }
 
     fn get_bucket(&self, hash: &[bool]) -> Option<&Bucket> {
@@ -68,18 +63,25 @@ where
     }
 }
 
-impl<T> ANNModel<T, usize> for RandomProjection<T>
+impl<T> Train<Vec<T>> for RandomProjection<T>
 where
     T: LinalgScalar + SampleUniform + PartialOrd,
 {
-    fn train(&mut self, vec: &[T]) -> Id {
-        self.hash_to_bucket(vec)
+    fn train(&mut self, vecs: &[Vec<T>]) {
+        for (id, vec) in vecs.iter().enumerate() {
+            self.hash_to_bucket(vec, id);
+        }
     }
+}
 
-    fn search(&self, query: &[T], k: usize) -> Vec<Id> {
+impl<T> BucketSearch<Vec<T>, usize> for RandomProjection<T>
+where
+    T: LinalgScalar + SampleUniform + PartialOrd,
+{
+    fn search(&self, query: &Vec<T>) -> Vec<Id> {
         let hash = self.hash(query);
         match self.get_bucket(&hash) {
-            Some(ids) => ids.iter().take(k).cloned().collect(),
+            Some(ids) => ids.clone(),
             None => vec![],
         }
     }
@@ -154,23 +156,25 @@ mod tests {
         assert_eq!(rp.hash(&b), vec![false, true, true, false]);
         assert_eq!(rp.hash(&c), vec![false, true, true, false]);
 
-        let a_id = rp.hash_to_bucket(&a);
-        let b_id = rp.hash_to_bucket(&b);
-        let c_id = rp.hash_to_bucket(&c);
+        let vecs = vec![a.clone(), b.clone(), c.clone()];
+        rp.train(&vecs);
 
         assert_eq!(
             rp.get_bucket(&vec![true, false, false, false]),
-            Some(&vec![a_id])
+            Some(&vec![0])
         );
         assert_eq!(
             rp.get_bucket(&vec![false, true, true, false]),
-            Some(&vec![b_id, c_id])
+            Some(&vec![1, 2])
         );
         assert!(rp.get_bucket(&vec![true, false, false, true]).is_none());
 
-        let k = 2;
+        assert_eq!(rp.search(&a), vec![0]);
+        assert_eq!(rp.search(&b), vec![1, 2]);
+        assert_eq!(rp.search(&c), vec![1, 2]);
+
         let query = vec![2.5, 1.];
-        assert_eq!(rp.search(&query, k), vec![1, 2]);
+        assert_eq!(rp.search(&query), vec![1, 2]);
 
         let query = vec![true, true, false, false];
         let buckets = rp.buckets();
