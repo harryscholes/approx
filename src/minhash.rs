@@ -1,13 +1,16 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    str::CharIndices,
+};
 
-use itertools::Itertools;
+use itertools::{Itertools, MultiPeek};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
 use crate::traits::{BucketSearch, Train};
 
 #[derive(Debug)]
 pub struct Minhash {
-    shingle_index: HashMap<String, usize>,
+    shingle_index: HashMap<String, usize>, // TODO store &str here?
     hash_functions: Vec<HashMap<usize, usize>>,
     bands: HashMap<Vec<usize>, Vec<usize>>,
     n_hashes: usize,
@@ -50,18 +53,14 @@ impl Minhash {
     fn shingle_indicator_vec(&self, text: &str) -> Vec<bool> {
         let mut vec = vec![false; self.shingle_index.len()];
 
-        let chars: Vec<_> = text.chars().collect();
-
-        for window in chars.windows(self.k) {
-            let shingle: String = window.into_iter().collect();
-            let index = self.shingle_index[&shingle];
-            vec[index] = true;
+        for shingle in text.shingles(self.k) {
+            vec[self.shingle_index[shingle]] = true;
         }
 
         vec
     }
 
-    fn build_shingle_index(&mut self, corpus: &[String]) {
+    fn build_shingle_index(&mut self, corpus: &[&str]) {
         self.shingle_index = self
             .build_vocab(corpus)
             .into_iter()
@@ -70,16 +69,10 @@ impl Minhash {
             .collect()
     }
 
-    fn build_vocab(&self, corpus: &[String]) -> Vec<String> {
+    fn build_vocab(&self, corpus: &[&str]) -> Vec<String> {
         corpus
             .iter()
-            .flat_map(|text| {
-                let chars: Vec<_> = text.chars().collect();
-                chars
-                    .windows(self.k)
-                    .map(|window| window.into_iter().collect())
-                    .collect::<Vec<_>>()
-            })
+            .flat_map(|text| text.shingles(self.k).map_into::<String>())
             .unique()
             .collect()
     }
@@ -113,8 +106,66 @@ impl Minhash {
     }
 }
 
-impl Train<String> for Minhash {
-    fn train(&mut self, corpus: &[String]) {
+trait Shingles<'a> {
+    fn shingles(&self, k: usize) -> ShingleIter<'a>;
+}
+
+impl<'a> Shingles<'a> for &'a str {
+    fn shingles(&self, window_size: usize) -> ShingleIter<'a> {
+        // s.char_indices().flat_map(move |(from, _)| {
+        //     s[from..]
+        //         .char_indices()
+        //         .skip(window_size - 1)
+        //         .take(1)
+        //         .map(move |(to, c)| &s[from..from + to + c.len_utf8()])
+        // })
+        ShingleIter::new(&self, window_size)
+    }
+}
+struct ShingleIter<'a> {
+    s: &'a str,
+    char_indices: MultiPeek<CharIndices<'a>>,
+    k: usize,
+}
+
+impl<'a> ShingleIter<'a> {
+    fn new(s: &'a str, k: usize) -> Self {
+        assert!(k > 0 && k <= s.len());
+        Self {
+            s,
+            char_indices: s.char_indices().multipeek(),
+            k,
+        }
+    }
+}
+
+impl<'a> Iterator for ShingleIter<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.char_indices.next() {
+            Some((start, _)) => {
+                // Peek at the shingle's chars
+                for _ in 0..self.k - 1 {
+                    // If any of the chars are `None`, then we have iterated past the final shingle
+                    if self.char_indices.peek().is_none() {
+                        return None;
+                    }
+                }
+                // Peek at the char after the shingle's final char
+                match self.char_indices.peek() {
+                    Some((end, _)) => Some(&self.s[start..*end]),
+                    // If there is no next char, then index to the end of the string
+                    None => Some(&self.s[start..]),
+                }
+            }
+            None => None,
+        }
+    }
+}
+
+impl Train<&str> for Minhash {
+    fn train(&mut self, corpus: &[&str]) {
         self.build_shingle_index(corpus);
         self.generate_hash_functions();
 
@@ -131,13 +182,13 @@ impl Train<String> for Minhash {
     }
 }
 
-impl BucketSearch<String, Id> for Minhash {
-    fn search(&self, query: &String) -> Vec<Id> {
+impl BucketSearch<&str, Id> for Minhash {
+    fn search(&self, query: &&str) -> Vec<Id> {
         self.minhash(query)
             .windows(self.band_size)
             .flat_map(|band| self.bands.get(&band.to_vec()).unwrap_or(&vec![]).to_vec())
-            .unique()
             .sorted()
+            .dedup()
             .collect()
     }
 }
@@ -156,13 +207,12 @@ mod test {
     fn test_pinecone_example() {
         // Example from:
         // https://www.pinecone.io/learn/locality-sensitive-hashing/
-        let a = "flying fish flew by the space station".to_string();
-        let b =
-            "we will not allow you to bring your sticks of dynamite and pet armadillo".to_string();
-        let c = "he figured a few sticks of dynamite were easier than a fishing pole to catch an armadillo".to_string();
+        let a = "flying fish flew by the space station";
+        let b = "we will not allow you to bring your sticks of dynamite and pet armadillo";
+        let c = "he figured a few sticks of dynamite were easier than a fishing pole to catch an armadillo";
 
-        let corpus = vec![a.clone(), b.clone(), c.clone()];
-
+        // let corpus = vec![a.clone(), b.clone(), c.clone()];
+        let corpus = vec![a, b, c];
         let k = 2;
         let n_hashes = 20;
         let band_size = 2;
@@ -183,5 +233,49 @@ mod test {
         assert_eq!(mh.search(&a), vec![0]);
         assert_eq!(mh.search(&b), vec![1, 2]);
         assert_eq!(mh.search(&c), vec![1, 2]);
+    }
+
+    #[test]
+    fn test_shingles_k_1() {
+        let s = "abc";
+        let mut iter = s.shingles(1);
+        assert_eq!(iter.next(), Some("a"));
+        assert_eq!(iter.next(), Some("b"));
+        assert_eq!(iter.next(), Some("c"));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_shingles_k_2() {
+        let s = "abcd";
+        let mut iter = s.shingles(2);
+        assert_eq!(iter.next(), Some("ab"));
+        assert_eq!(iter.next(), Some("bc"));
+        assert_eq!(iter.next(), Some("cd"));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_shingles_k_3() {
+        let s = "abcde";
+        let mut iter = s.shingles(3);
+        assert_eq!(iter.next(), Some("abc"));
+        assert_eq!(iter.next(), Some("bcd"));
+        assert_eq!(iter.next(), Some("cde"));
+        assert_eq!(iter.next(), None);
+
+        let s = "👌🤙🤣😘";
+        let mut iter = s.shingles(3);
+        assert_eq!(iter.next(), Some("👌🤙🤣"));
+        assert_eq!(iter.next(), Some("🤙🤣😘"));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_shingles_k_s() {
+        let s = "abc";
+        let mut iter = s.shingles(3);
+        assert_eq!(iter.next(), Some("abc"));
+        assert_eq!(iter.next(), None);
     }
 }
