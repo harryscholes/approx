@@ -10,7 +10,7 @@ use crate::traits::{BucketSearch, Train};
 
 #[derive(Debug)]
 pub struct Minhash {
-    shingle_index: HashMap<String, usize>, // TODO store &str here?
+    shingle_index: HashMap<String, usize>,
     hash_functions: Vec<HashMap<usize, usize>>,
     bands: HashMap<Vec<usize>, Vec<usize>>,
     n_hashes: usize,
@@ -93,7 +93,7 @@ impl Minhash {
     fn apply_hash_function(
         &self,
         hash_function: &HashMap<usize, usize>,
-        shingle_indicator_vec: &Vec<bool>,
+        shingle_indicator_vec: &[bool],
     ) -> usize {
         for idx in 0..self.shingle_index.len() {
             let permuted_idx = hash_function[&idx];
@@ -112,14 +112,7 @@ trait Shingles<'a> {
 
 impl<'a> Shingles<'a> for &'a str {
     fn shingles(&self, window_size: usize) -> ShingleIter<'a> {
-        // s.char_indices().flat_map(move |(from, _)| {
-        //     s[from..]
-        //         .char_indices()
-        //         .skip(window_size - 1)
-        //         .take(1)
-        //         .map(move |(to, c)| &s[from..from + to + c.len_utf8()])
-        // })
-        ShingleIter::new(&self, window_size)
+        ShingleIter::new(self, window_size)
     }
 }
 struct ShingleIter<'a> {
@@ -148,9 +141,7 @@ impl<'a> Iterator for ShingleIter<'a> {
                 // Peek at the shingle's chars
                 for _ in 0..self.k - 1 {
                     // If any of the chars are `None`, then we have iterated past the final shingle
-                    if self.char_indices.peek().is_none() {
-                        return None;
-                    }
+                    self.char_indices.peek()?;
                 }
                 // Peek at the char after the shingle's final char
                 match self.char_indices.peek() {

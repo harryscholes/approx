@@ -44,6 +44,12 @@ where
     }
 }
 
+impl<T> Default for Flat<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn euclidean_distance<T>(x: &[T], y: &[T]) -> f64
 where
     T: Copy + NumOps<T, T> + std::iter::Sum + Into<f64>,
@@ -53,8 +59,7 @@ where
         .zip(y.iter())
         .map(|(&x, &y)| {
             let diff = x - y;
-            let diff_2 = diff * diff;
-            diff_2
+            diff * diff
         })
         .sum();
     squared_diff_sum.into().sqrt()
