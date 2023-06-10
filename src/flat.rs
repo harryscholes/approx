@@ -14,20 +14,20 @@ impl<T> Flat<T> {
     }
 }
 
-impl<T> Train<Vec<T>> for Flat<T>
+impl<T> Train<&[T]> for Flat<T>
 where
     T: Copy + Clone + NumOps<T, T> + std::iter::Sum + Into<f64>,
 {
-    fn train(&mut self, vecs: &[Vec<T>]) {
-        self.data.extend(vecs.iter().cloned());
+    fn train(&mut self, vecs: &[&[T]]) {
+        self.data.extend(vecs.iter().map(|s| (*s).to_vec()));
     }
 }
 
-impl<T> Search<Vec<T>, Id> for Flat<T>
+impl<T> Search<&[T], Id> for Flat<T>
 where
     T: Copy + Clone + NumOps<T, T> + std::iter::Sum + Into<f64>,
 {
-    fn search(&self, query: &Vec<T>, k: usize) -> Vec<Id> {
+    fn search(&self, query: &&[T], k: usize) -> Vec<Id> {
         let mut distances: Vec<_> = self
             .data
             .iter()
@@ -78,19 +78,19 @@ mod tests {
         let c = vec![3., 1.];
 
         let query = vec![1.1, 1.9];
-        assert!(f.search(&query, 10).is_empty());
+        assert!(f.search(&query.as_slice(), 10).is_empty());
 
-        let vecs = vec![a, b, c];
+        let vecs = vec![a.as_slice(), b.as_slice(), c.as_slice()];
         f.train(&vecs);
 
         let query = vec![1.1, 1.9];
-        assert_eq!(f.search(&query, 1), vec![0]);
-        assert_eq!(f.search(&query, 2), vec![0, 1]);
-        assert_eq!(f.search(&query, 3), vec![0, 1, 2]);
+        assert_eq!(f.search(&query.as_slice(), 1), vec![0]);
+        assert_eq!(f.search(&query.as_slice(), 2), vec![0, 1]);
+        assert_eq!(f.search(&query.as_slice(), 3), vec![0, 1, 2]);
 
         let query = vec![1.9, 1.5];
-        assert_eq!(f.search(&query, 1), vec![1]);
-        assert_eq!(f.search(&query, 2), vec![1, 0]);
-        assert_eq!(f.search(&query, 3), vec![1, 0, 2]);
+        assert_eq!(f.search(&query.as_slice(), 1), vec![1]);
+        assert_eq!(f.search(&query.as_slice(), 2), vec![1, 0]);
+        assert_eq!(f.search(&query.as_slice(), 3), vec![1, 0, 2]);
     }
 }
