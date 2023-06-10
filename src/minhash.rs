@@ -106,6 +106,35 @@ impl Minhash {
     }
 }
 
+impl Train<&str> for Minhash {
+    fn train(&mut self, corpus: &[&str]) {
+        self.build_shingle_index(corpus);
+        self.generate_hash_functions();
+
+        let signatures: Vec<_> = corpus.iter().map(|text| self.minhash(text)).collect();
+
+        for (index, signature) in signatures.iter().enumerate() {
+            for band in signature.windows(self.band_size) {
+                self.bands
+                    .entry(band.to_vec())
+                    .or_insert(vec![])
+                    .push(index)
+            }
+        }
+    }
+}
+
+impl BucketSearch<&str, Id> for Minhash {
+    fn search(&self, query: &&str) -> Vec<Id> {
+        self.minhash(query)
+            .windows(self.band_size)
+            .flat_map(|band| self.bands.get(&band.to_vec()).unwrap_or(&vec![]).to_vec())
+            .sorted()
+            .dedup()
+            .collect()
+    }
+}
+
 trait Shingles<'a> {
     fn shingles(&self, k: usize) -> ShingleIter<'a>;
 }
@@ -152,35 +181,6 @@ impl<'a> Iterator for ShingleIter<'a> {
             }
             None => None,
         }
-    }
-}
-
-impl Train<&str> for Minhash {
-    fn train(&mut self, corpus: &[&str]) {
-        self.build_shingle_index(corpus);
-        self.generate_hash_functions();
-
-        let signatures: Vec<_> = corpus.iter().map(|text| self.minhash(text)).collect();
-
-        for (index, signature) in signatures.iter().enumerate() {
-            for band in signature.windows(self.band_size) {
-                self.bands
-                    .entry(band.to_vec())
-                    .or_insert(vec![])
-                    .push(index)
-            }
-        }
-    }
-}
-
-impl BucketSearch<&str, Id> for Minhash {
-    fn search(&self, query: &&str) -> Vec<Id> {
-        self.minhash(query)
-            .windows(self.band_size)
-            .flat_map(|band| self.bands.get(&band.to_vec()).unwrap_or(&vec![]).to_vec())
-            .sorted()
-            .dedup()
-            .collect()
     }
 }
 
