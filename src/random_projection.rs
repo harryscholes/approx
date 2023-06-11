@@ -63,7 +63,7 @@ where
     }
 }
 
-impl<T> Train<Vec<T>> for RandomProjection<T>
+impl<T> Train<'_, Vec<T>> for RandomProjection<T>
 where
     T: LinalgScalar + SampleUniform + PartialOrd,
 {
@@ -74,7 +74,7 @@ where
     }
 }
 
-impl<T> BucketSearch<Vec<T>, usize> for RandomProjection<T>
+impl<T> BucketSearch<'_, Vec<T>, usize> for RandomProjection<T>
 where
     T: LinalgScalar + SampleUniform + PartialOrd,
 {

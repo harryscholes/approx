@@ -1,11 +1,11 @@
-pub trait Train<T> {
-    fn train(&mut self, items: &[T]);
+pub trait Train<'a, T> {
+    fn train(&mut self, items: &'a [T]);
 }
 
-pub trait Search<T, I>: Train<T> {
-    fn search(&self, query: &T, k: usize) -> Vec<I>;
+pub trait Search<'a, T, I>: Train<'a, T> {
+    fn search(&self, query: &'a T, k: usize) -> Vec<I>;
 }
 
-pub trait BucketSearch<T, I>: Train<T> {
-    fn search(&self, query: &T) -> Vec<I>;
+pub trait BucketSearch<'a, T, I>: Train<'a, T> {
+    fn search(&self, query: &'a T) -> Vec<I>;
 }

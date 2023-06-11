@@ -1,39 +1,36 @@
-use num::traits::NumOps;
+use num::traits::real::Real;
 
 use crate::traits::{Search, Train};
 
-pub struct Flat<T> {
-    data: Vec<Vec<T>>,
+pub struct Flat<'a, T> {
+    data: Vec<&'a T>,
 }
 
 type Id = usize;
 
-impl<T> Flat<T> {
+impl<'a, T> Flat<'a, T> {
     pub fn new() -> Self {
         Self { data: vec![] }
     }
 }
 
-impl<T> Train<&[T]> for Flat<T>
-where
-    T: Copy + Clone + NumOps<T, T> + std::iter::Sum + Into<f64>,
-{
-    fn train(&mut self, vecs: &[&[T]]) {
-        self.data.extend(vecs.iter().map(|s| (*s).to_vec()));
+impl<'a, T> Train<'a, T> for Flat<'a, T> {
+    fn train(&mut self, vecs: &'a [T]) {
+        self.data.extend(vecs);
     }
 }
 
-impl<T> Search<&[T], Id> for Flat<T>
+impl<'a, T, I: 'a> Search<'a, T, Id> for Flat<'a, T>
 where
-    T: Copy + Clone + NumOps<T, T> + std::iter::Sum + Into<f64>,
+    &'a T: IntoIterator<Item = &'a I>,
+    I: Real + std::iter::Sum,
 {
-    fn search(&self, query: &&[T], k: usize) -> Vec<Id> {
+    fn search(&self, query: &'a T, k: usize) -> Vec<Id> {
         let mut distances: Vec<_> = self
             .data
             .iter()
             .enumerate()
             .map(|(id, vec)| (euclidean_distance(query, vec), id))
-            .filter(|(d, _)| !d.is_nan())
             .collect();
         distances.sort_by(|(x, _), (y, _)| x.partial_cmp(y).unwrap());
         distances
@@ -44,25 +41,26 @@ where
     }
 }
 
-impl<T> Default for Flat<T> {
+impl<'a, T> Default for Flat<'a, T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-fn euclidean_distance<T>(x: &[T], y: &[T]) -> f64
+fn euclidean_distance<'a, T, I: 'a>(x: &'a T, y: &'a T) -> I
 where
-    T: Copy + NumOps<T, T> + std::iter::Sum + Into<f64>,
+    &'a T: IntoIterator<Item = &'a I>,
+    I: Real + std::iter::Sum,
 {
-    let squared_diff_sum: T = x
-        .iter()
-        .zip(y.iter())
+    let squared_diff_sum: I = x
+        .into_iter()
+        .zip(y.into_iter())
         .map(|(&x, &y)| {
             let diff = x - y;
             diff * diff
         })
         .sum();
-    squared_diff_sum.into().sqrt()
+    squared_diff_sum.sqrt()
 }
 
 #[cfg(test)]
@@ -78,19 +76,19 @@ mod tests {
         let c = vec![3., 1.];
 
         let query = vec![1.1, 1.9];
-        assert!(f.search(&query.as_slice(), 10).is_empty());
+        assert!(f.search(&query, 10).is_empty());
 
-        let vecs = vec![a.as_slice(), b.as_slice(), c.as_slice()];
+        let vecs = vec![a, b, c];
         f.train(&vecs);
 
         let query = vec![1.1, 1.9];
-        assert_eq!(f.search(&query.as_slice(), 1), vec![0]);
-        assert_eq!(f.search(&query.as_slice(), 2), vec![0, 1]);
-        assert_eq!(f.search(&query.as_slice(), 3), vec![0, 1, 2]);
+        assert_eq!(f.search(&query, 1), vec![0]);
+        assert_eq!(f.search(&query, 2), vec![0, 1]);
+        assert_eq!(f.search(&query, 3), vec![0, 1, 2]);
 
         let query = vec![1.9, 1.5];
-        assert_eq!(f.search(&query.as_slice(), 1), vec![1]);
-        assert_eq!(f.search(&query.as_slice(), 2), vec![1, 0]);
-        assert_eq!(f.search(&query.as_slice(), 3), vec![1, 0, 2]);
+        assert_eq!(f.search(&query, 1), vec![1]);
+        assert_eq!(f.search(&query, 2), vec![1, 0]);
+        assert_eq!(f.search(&query, 3), vec![1, 0, 2]);
     }
 }

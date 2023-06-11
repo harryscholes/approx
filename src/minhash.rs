@@ -9,8 +9,8 @@ use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 use crate::traits::{BucketSearch, Train};
 
 #[derive(Debug)]
-pub struct Minhash {
-    shingle_index: HashMap<String, usize>,
+pub struct Minhash<'a> {
+    shingle_index: HashMap<&'a str, usize>,
     hash_functions: Vec<HashMap<usize, usize>>,
     bands: HashMap<Vec<usize>, Vec<usize>>,
     n_hashes: usize,
@@ -22,7 +22,7 @@ pub struct Minhash {
 
 type Id = usize;
 
-impl Minhash {
+impl<'a> Minhash<'a> {
     pub fn new(k: usize, n_hashes: usize, band_size: usize) -> Self {
         Self::from_rng(k, n_hashes, band_size, StdRng::from_entropy())
     }
@@ -60,19 +60,19 @@ impl Minhash {
         vec
     }
 
-    fn build_shingle_index(&mut self, corpus: &[&str]) {
+    fn build_shingle_index(&mut self, corpus: &'a [&str]) {
         self.shingle_index = self
             .build_vocab(corpus)
-            .into_iter()
+            .iter()
             .enumerate()
-            .map(|(index, shingle)| (shingle, index))
+            .map(|(index, shingle)| (*shingle, index))
             .collect()
     }
 
-    fn build_vocab(&self, corpus: &[&str]) -> Vec<String> {
+    fn build_vocab(&self, corpus: &'a [&str]) -> Vec<&'a str> {
         corpus
             .iter()
-            .flat_map(|text| text.shingles(self.k).map_into::<String>())
+            .flat_map(|text| text.shingles(self.k))
             .unique()
             .collect()
     }
@@ -106,8 +106,8 @@ impl Minhash {
     }
 }
 
-impl Train<&str> for Minhash {
-    fn train(&mut self, corpus: &[&str]) {
+impl<'a> Train<'a, &str> for Minhash<'a> {
+    fn train(&mut self, corpus: &'a [&str]) {
         self.build_shingle_index(corpus);
         self.generate_hash_functions();
 
@@ -124,7 +124,7 @@ impl Train<&str> for Minhash {
     }
 }
 
-impl BucketSearch<&str, Id> for Minhash {
+impl<'a> BucketSearch<'a, &str, Id> for Minhash<'a> {
     fn search(&self, query: &&str) -> Vec<Id> {
         self.minhash(query)
             .windows(self.band_size)
