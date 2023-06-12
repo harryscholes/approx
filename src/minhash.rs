@@ -12,8 +12,8 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Minhash<'a> {
-    shingle_index: HashMap<&'a str, usize>,
+pub struct Minhash<T> {
+    shingle_index: HashMap<T, usize>,
     hash_functions: Vec<HashMap<usize, usize>>,
     bands: HashMap<Vec<usize>, Vec<usize>>,
     n_hashes: usize,
@@ -25,7 +25,7 @@ pub struct Minhash<'a> {
 
 type Id = usize;
 
-impl<'a> Minhash<'a> {
+impl<'a> Minhash<&'a str> {
     pub fn new(k: usize, n_hashes: usize, band_size: usize) -> Self {
         Self::from_rng(k, n_hashes, band_size, StdRng::from_entropy())
     }
@@ -110,7 +110,7 @@ impl<'a> Minhash<'a> {
     }
 }
 
-impl<'a> Train<'a, &str> for Minhash<'a> {
+impl<'a> Train<'a, &str> for Minhash<&'a str> {
     fn train(&mut self, corpus: &'a [&str]) -> Result<(), Error> {
         if self.trained {
             return Err(Error::ModelAlreadyTrained);
@@ -135,7 +135,7 @@ impl<'a> Train<'a, &str> for Minhash<'a> {
     }
 }
 
-impl<'a> BucketSearch<'a, &str, Id> for Minhash<'a> {
+impl<'a> BucketSearch<'a, &str, Id> for Minhash<&'a str> {
     fn search(&self, query: &&str) -> Result<Vec<Id>, Error> {
         if !self.trained {
             return Err(Error::ModelNotTrained);
