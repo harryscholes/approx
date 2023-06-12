@@ -6,11 +6,15 @@ use ndarray_rand::rand_distr::Uniform;
 use ndarray_rand::RandomExt;
 use serde::{Deserialize, Serialize};
 
-use crate::traits::{BucketSearch, Train};
+use crate::{
+    error::Error,
+    traits::{BucketSearch, Train},
+};
 
 pub struct RandomProjection<T> {
     plane_norms: PlaneNorms<T>,
     buckets: Buckets,
+    trained: bool,
 }
 
 type Id = usize;
@@ -22,6 +26,7 @@ impl<T> RandomProjection<T> {
         Self {
             plane_norms: arr.into(),
             buckets: HashMap::new(),
+            trained: false,
         }
     }
 }
@@ -67,10 +72,17 @@ impl<T> Train<'_, Vec<T>> for RandomProjection<T>
 where
     T: LinalgScalar + SampleUniform + PartialOrd,
 {
-    fn train(&mut self, vecs: &[Vec<T>]) {
+    fn train(&mut self, vecs: &[Vec<T>]) -> Result<(), Error> {
+        if self.trained {
+            return Err(Error::ModelAlreadyTrained);
+        };
+
         for (id, vec) in vecs.iter().enumerate() {
             self.hash_to_bucket(vec, id);
         }
+
+        self.trained = true;
+        Ok(())
     }
 }
 
@@ -78,12 +90,18 @@ impl<T> BucketSearch<'_, Vec<T>, usize> for RandomProjection<T>
 where
     T: LinalgScalar + SampleUniform + PartialOrd,
 {
-    fn search(&self, query: &Vec<T>) -> Vec<Id> {
+    fn search(&self, query: &Vec<T>) -> Result<Vec<Id>, Error> {
+        if !self.trained {
+            return Err(Error::ModelNotTrained);
+        }
+
         let hash = self.hash(query);
-        match self.get_bucket(&hash) {
+        let ids = match self.get_bucket(&hash) {
             Some(ids) => ids.clone(),
             None => vec![],
-        }
+        };
+
+        Ok(ids)
     }
 }
 
@@ -157,7 +175,13 @@ mod tests {
         assert_eq!(rp.hash(&c), vec![false, true, true, false]);
 
         let vecs = vec![a.clone(), b.clone(), c.clone()];
-        rp.train(&vecs);
+
+        assert_eq!(rp.search(&a).unwrap_err(), Error::ModelNotTrained);
+
+        rp.train(&vecs).unwrap();
+        assert!(rp.trained);
+
+        assert_eq!(rp.train(&vecs).unwrap_err(), Error::ModelAlreadyTrained);
 
         assert_eq!(
             rp.get_bucket(&vec![true, false, false, false]),
@@ -169,12 +193,12 @@ mod tests {
         );
         assert!(rp.get_bucket(&vec![true, false, false, true]).is_none());
 
-        assert_eq!(rp.search(&a), vec![0]);
-        assert_eq!(rp.search(&b), vec![1, 2]);
-        assert_eq!(rp.search(&c), vec![1, 2]);
+        assert_eq!(rp.search(&a).unwrap(), vec![0]);
+        assert_eq!(rp.search(&b).unwrap(), vec![1, 2]);
+        assert_eq!(rp.search(&c).unwrap(), vec![1, 2]);
 
         let query = vec![2.5, 1.];
-        assert_eq!(rp.search(&query), vec![1, 2]);
+        assert_eq!(rp.search(&query).unwrap(), vec![1, 2]);
 
         let query = vec![true, true, false, false];
         let buckets = rp.buckets();

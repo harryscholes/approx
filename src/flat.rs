@@ -1,22 +1,36 @@
 use num::traits::real::Real;
 
-use crate::traits::{Search, Train};
+use crate::{
+    error::Error,
+    traits::{Search, Train},
+};
 
 pub struct Flat<'a, T> {
     data: Vec<&'a T>,
+    trained: bool,
 }
 
 type Id = usize;
 
 impl<'a, T> Flat<'a, T> {
     pub fn new() -> Self {
-        Self { data: vec![] }
+        Self {
+            data: vec![],
+            trained: false,
+        }
     }
 }
 
 impl<'a, T> Train<'a, T> for Flat<'a, T> {
-    fn train(&mut self, vecs: &'a [T]) {
+    fn train(&mut self, vecs: &'a [T]) -> Result<(), Error> {
+        if self.trained {
+            return Err(Error::ModelAlreadyTrained);
+        }
+
         self.data.extend(vecs);
+
+        self.trained = true;
+        Ok(())
     }
 }
 
@@ -25,7 +39,11 @@ where
     &'a T: IntoIterator<Item = &'a I>,
     I: Real + std::iter::Sum,
 {
-    fn search(&self, query: &'a T, k: usize) -> Vec<Id> {
+    fn search(&self, query: &'a T, k: usize) -> Result<Vec<Id>, Error> {
+        if !self.trained {
+            return Err(Error::ModelNotTrained);
+        }
+
         let mut distances: Vec<_> = self
             .data
             .iter()
@@ -33,11 +51,13 @@ where
             .map(|(id, vec)| (euclidean_distance(query, vec), id))
             .collect();
         distances.sort_by(|(x, _), (y, _)| x.partial_cmp(y).unwrap());
-        distances
+        let ids = distances
             .into_iter()
             .take(k)
             .map(|(_dist, id)| id)
-            .collect()
+            .collect();
+
+        Ok(ids)
     }
 }
 
@@ -74,21 +94,24 @@ mod tests {
         let a = vec![1., 2.];
         let b = vec![2., 1.];
         let c = vec![3., 1.];
-
-        let query = vec![1.1, 1.9];
-        assert!(f.search(&query, 10).is_empty());
-
         let vecs = vec![a, b, c];
-        f.train(&vecs);
+
+        let query = vec![0., 0.];
+        assert_eq!(f.search(&query, 10).unwrap_err(), Error::ModelNotTrained);
+
+        f.train(&vecs).unwrap();
+        assert!(f.trained);
+
+        assert_eq!(f.train(&vecs).unwrap_err(), Error::ModelAlreadyTrained);
 
         let query = vec![1.1, 1.9];
-        assert_eq!(f.search(&query, 1), vec![0]);
-        assert_eq!(f.search(&query, 2), vec![0, 1]);
-        assert_eq!(f.search(&query, 3), vec![0, 1, 2]);
+        assert_eq!(f.search(&query, 1).unwrap(), vec![0]);
+        assert_eq!(f.search(&query, 2).unwrap(), vec![0, 1]);
+        assert_eq!(f.search(&query, 3).unwrap(), vec![0, 1, 2]);
 
         let query = vec![1.9, 1.5];
-        assert_eq!(f.search(&query, 1), vec![1]);
-        assert_eq!(f.search(&query, 2), vec![1, 0]);
-        assert_eq!(f.search(&query, 3), vec![1, 0, 2]);
+        assert_eq!(f.search(&query, 1).unwrap(), vec![1]);
+        assert_eq!(f.search(&query, 2).unwrap(), vec![1, 0]);
+        assert_eq!(f.search(&query, 3).unwrap(), vec![1, 0, 2]);
     }
 }

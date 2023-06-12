@@ -6,7 +6,10 @@ use std::{
 use itertools::{Itertools, MultiPeek};
 use rand::{rngs::StdRng, seq::SliceRandom, SeedableRng};
 
-use crate::traits::{BucketSearch, Train};
+use crate::{
+    error::Error,
+    traits::{BucketSearch, Train},
+};
 
 #[derive(Debug)]
 pub struct Minhash<'a> {
@@ -17,7 +20,7 @@ pub struct Minhash<'a> {
     band_size: usize,
     k: usize,
     rng: StdRng,
-    // TODO add trained flag
+    trained: bool,
 }
 
 type Id = usize;
@@ -38,6 +41,7 @@ impl<'a> Minhash<'a> {
             k,
             band_size,
             rng: rng.into(),
+            trained: false,
         }
     }
 
@@ -107,7 +111,11 @@ impl<'a> Minhash<'a> {
 }
 
 impl<'a> Train<'a, &str> for Minhash<'a> {
-    fn train(&mut self, corpus: &'a [&str]) {
+    fn train(&mut self, corpus: &'a [&str]) -> Result<(), Error> {
+        if self.trained {
+            return Err(Error::ModelAlreadyTrained);
+        };
+
         self.build_shingle_index(corpus);
         self.generate_hash_functions();
 
@@ -121,17 +129,27 @@ impl<'a> Train<'a, &str> for Minhash<'a> {
                     .push(index)
             }
         }
+
+        self.trained = true;
+        Ok(())
     }
 }
 
 impl<'a> BucketSearch<'a, &str, Id> for Minhash<'a> {
-    fn search(&self, query: &&str) -> Vec<Id> {
-        self.minhash(query)
+    fn search(&self, query: &&str) -> Result<Vec<Id>, Error> {
+        if !self.trained {
+            return Err(Error::ModelNotTrained);
+        }
+
+        let ids = self
+            .minhash(query)
             .windows(self.band_size)
             .flat_map(|band| self.bands.get(&band.to_vec()).unwrap_or(&vec![]).to_vec())
             .sorted()
             .dedup()
-            .collect()
+            .collect();
+
+        Ok(ids)
     }
 }
 
@@ -210,7 +228,12 @@ mod test {
         let rng = StdRng::seed_from_u64(42);
         let mut mh = Minhash::from_rng(k, n_hashes, band_size, rng);
 
-        mh.train(&corpus);
+        assert_eq!(mh.search(&a).unwrap_err(), Error::ModelNotTrained);
+
+        mh.train(&corpus).unwrap();
+        assert!(mh.trained);
+
+        assert_eq!(mh.train(&corpus).unwrap_err(), Error::ModelAlreadyTrained);
 
         let a_sig = mh.minhash(&a);
         let b_sig = mh.minhash(&b);
@@ -221,9 +244,9 @@ mod test {
         let b_c = jaccard(&b_sig, &c_sig);
         assert!(a_b < a_c && a_c < b_c);
 
-        assert_eq!(mh.search(&a), vec![0]);
-        assert_eq!(mh.search(&b), vec![1, 2]);
-        assert_eq!(mh.search(&c), vec![1, 2]);
+        assert_eq!(mh.search(&a).unwrap(), vec![0]);
+        assert_eq!(mh.search(&b).unwrap(), vec![1, 2]);
+        assert_eq!(mh.search(&c).unwrap(), vec![1, 2]);
     }
 
     #[test]
