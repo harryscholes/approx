@@ -248,4 +248,15 @@ mod tests {
         let deserialized = serde_json::from_str::<PlaneNorms<f32>>(&serialized).unwrap();
         assert_eq!(plane_norms, deserialized);
     }
+
+    #[test]
+    fn test_trained_error_handling() {
+        let mut rp = RandomProjection::new(1, 1, -1., 1.);
+        assert_eq!(rp.search(&vec![0.]).unwrap_err(), Error::ModelNotTrained);
+        rp.train(&[vec![0.]]).unwrap();
+        assert_eq!(
+            rp.train(&[vec![0.]]).unwrap_err(),
+            Error::ModelAlreadyTrained
+        );
+    }
 }

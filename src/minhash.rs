@@ -292,4 +292,15 @@ mod test {
         assert_eq!(iter.next(), Some("abc"));
         assert_eq!(iter.next(), None);
     }
+
+    #[test]
+    fn test_trained_error_handling() {
+        let mut mh = Minhash::new(1, 1, 1);
+        assert_eq!(mh.search(&"query").unwrap_err(), Error::ModelNotTrained);
+        mh.train(&["first time"]).unwrap();
+        assert_eq!(
+            mh.train(&["second time"]).unwrap_err(),
+            Error::ModelAlreadyTrained
+        );
+    }
 }

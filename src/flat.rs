@@ -114,4 +114,13 @@ mod tests {
         assert_eq!(f.search(&query, 2).unwrap(), vec![1, 0]);
         assert_eq!(f.search(&query, 3).unwrap(), vec![1, 0, 2]);
     }
+
+    #[test]
+    fn test_trained_error_handling() {
+        let mut f = Flat::new();
+        assert_eq!(f.search(&vec![0.], 1).unwrap_err(), Error::ModelNotTrained);
+        let data = vec![vec![0.]];
+        f.train(&data).unwrap();
+        assert_eq!(f.train(&data).unwrap_err(), Error::ModelAlreadyTrained);
+    }
 }
