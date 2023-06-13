@@ -49,10 +49,13 @@ where
             .data
             .iter()
             .enumerate()
-            .map(|(id, vec)| (euclidean_distance(query, vec), id))
-            .sorted_by(|(x, _), (y, _)| x.partial_cmp(y).unwrap())
+            .sorted_by(|(_, x), (_, y)| {
+                euclidean_distance(query, x)
+                    .partial_cmp(&euclidean_distance(query, y))
+                    .unwrap()
+            })
+            .map(|(id, _)| id)
             .take(k)
-            .map(|(_dist, id)| id)
             .collect();
 
         Ok(ids)
