@@ -70,15 +70,14 @@ where
     &'a T: IntoIterator<Item = &'a I>,
     I: Real + std::iter::Sum,
 {
-    let squared_diff_sum: I = x
-        .into_iter()
+    x.into_iter()
         .zip(y.into_iter())
         .map(|(&x, &y)| {
             let diff = x - y;
             diff * diff
         })
-        .sum();
-    squared_diff_sum.sqrt()
+        .sum::<I>()
+        .sqrt()
 }
 
 #[cfg(test)]
