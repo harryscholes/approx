@@ -1,3 +1,4 @@
+use itertools::Itertools;
 use num::traits::real::Real;
 
 use crate::{
@@ -44,15 +45,12 @@ where
             return Err(Error::ModelNotTrained);
         }
 
-        let mut distances: Vec<_> = self
+        let ids = self
             .data
             .iter()
             .enumerate()
             .map(|(id, vec)| (euclidean_distance(query, vec), id))
-            .collect();
-        distances.sort_by(|(x, _), (y, _)| x.partial_cmp(y).unwrap());
-        let ids = distances
-            .into_iter()
+            .sorted_by(|(x, _), (y, _)| x.partial_cmp(y).unwrap())
             .take(k)
             .map(|(_dist, id)| id)
             .collect();
